@@ -206,6 +206,18 @@ async def websocket_endpoint(websocket: WebSocket, game_id: int):
     WebSocket endpoint for real-time game updates.
     /ws/games/{game_id}
     """
+    # Check origin for WebSocket connections (CORS doesn't apply to WebSockets)
+    origin = websocket.headers.get("origin")
+    allowed_origins = [
+        "https://micho8cho93.github.io",
+        "https://micho8cho93.github.io/scoreboard_frontend",
+        "https://micho8cho93.github.io/scoreboard_frontend/",
+    ]
+    
+    if origin and origin.rstrip('/') not in [o.rstrip('/') for o in allowed_origins]:
+        await websocket.close(code=1008, reason="Origin not allowed")
+        return
+    
     # Verify game exists using a database session
     db = next(get_db())
     try:
@@ -221,8 +233,11 @@ async def websocket_endpoint(websocket: WebSocket, game_id: int):
             # Keep connection alive and handle any incoming messages
             while True:
                 # Wait for messages (client can send ping/pong or other commands)
-                data = await websocket.receive_text()
-                # For now, we just echo or ignore client messages
+                # Use receive() instead of receive_text() to handle both text and ping/pong
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
+                # For now, we just ignore client messages
                 # In future, could handle commands like "ping"
         except WebSocketDisconnect:
             manager.disconnect(websocket, game_id)
