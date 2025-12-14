@@ -24,7 +24,11 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://micho8cho93.github.io/scoreboard_frontend/"],  # In production, restrict to GitHub Pages/Vercel domains
+    allow_origins=[
+        "https://micho8cho93.github.io",
+        "https://micho8cho93.github.io/scoreboard_frontend",
+        "https://micho8cho93.github.io/scoreboard_frontend/",
+    ],  # In production, restrict to GitHub Pages domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
