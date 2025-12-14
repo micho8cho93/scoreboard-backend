@@ -48,28 +48,51 @@ class ConnectionManager:
         if game_id not in self.active_connections:
             self.active_connections[game_id] = []
         self.active_connections[game_id].append(websocket)
+        connection_count = len(self.active_connections[game_id])
+        print(f"✅ WebSocket client connected for game {game_id}")
+        print(f"   Total connections for this game: {connection_count}")
+        print(f"   All active games: {list(self.active_connections.keys())}")
     
     def disconnect(self, websocket: WebSocket, game_id: int):
         """Disconnect a client from a game's WebSocket."""
         if game_id in self.active_connections:
             if websocket in self.active_connections[game_id]:
                 self.active_connections[game_id].remove(websocket)
+                print(f"🔌 Client disconnected from game {game_id}")
             if not self.active_connections[game_id]:
                 del self.active_connections[game_id]
+                print(f"   No more connections for game {game_id}")
+            else:
+                print(f"   Remaining connections for game {game_id}: {len(self.active_connections[game_id])}")
     
     async def broadcast(self, game_id: int, message: dict):
         """Broadcast a message to all connected clients for a game."""
+        print(f"\n{'='*50}")
+        print(f"BROADCAST ATTEMPT for game {game_id}")
+        print(f"Message: {message}")
+        print(f"Active games: {list(self.active_connections.keys())}")
+        
         if game_id in self.active_connections:
+            connections = self.active_connections[game_id]
+            print(f"Broadcasting to {len(connections)} clients")
+            
             disconnected = []
-            for connection in self.active_connections[game_id]:
+            for i, connection in enumerate(connections):
                 try:
                     await connection.send_json(message)
-                except Exception:
+                    print(f"✅ Sent to client {i+1}/{len(connections)}")
+                except Exception as e:
+                    print(f"❌ Failed to send to client {i+1}: {e}")
                     disconnected.append(connection)
             
-            # Remove disconnected clients
             for conn in disconnected:
                 self.disconnect(conn, game_id)
+            
+            print(f"Broadcast complete. Disconnected: {len(disconnected)}")
+        else:
+            print(f"❌ NO ACTIVE CONNECTIONS for game {game_id}")
+            print(f"Available games with connections: {list(self.active_connections.keys())}")
+        print(f"{'='*50}\n")
 
 
 manager = ConnectionManager()
@@ -164,13 +187,24 @@ async def create_event(
     POST /games/{game_id}/events
     Create a new play-by-play event.
     """
+    print(f"\n{'='*60}")
+    print(f"CREATE EVENT CALLED")
+    print(f"Game ID: {game_id}")
+    print(f"Event data: {event.dict()}")
+    print(f"Current manager state: {dict(manager.active_connections)}")
+    print(f"{'='*60}\n")
+    
     # Verify game exists
     game = db.query(models.Game).filter(models.Game.id == game_id).first()
     if not game:
+        print(f"❌ Game {game_id} not found in database")
         raise HTTPException(status_code=404, detail="Game not found")
     
-    # Validate team is A or B (already validated in schema, but double-check)
+    print(f"✅ Game found: {game.team_a_name} vs {game.team_b_name}")
+    
+    # Validate team is A or B
     if event.team not in [models.TeamSide.A, models.TeamSide.B]:
+        print(f"❌ Invalid team: {event.team}")
         raise HTTPException(status_code=400, detail="Team must be A or B")
     
     # Create event
@@ -184,6 +218,8 @@ async def create_event(
     db.commit()
     db.refresh(db_event)
     
+    print(f"✅ Event created with ID: {db_event.id}")
+    
     # Broadcast to WebSocket clients
     payload = schemas.WebSocketEventPayload(
         event_id=db_event.id,
@@ -193,7 +229,13 @@ async def create_event(
         description=db_event.description,
         timestamp=db_event.created_at
     )
+    
+    print(f"📡 Broadcasting payload: {payload.dict()}")
     await manager.broadcast(game_id, payload.dict())
+    
+    print(f"\n{'='*60}")
+    print(f"EVENT CREATION COMPLETE")
+    print(f"{'='*60}\n")
     
     return db_event
 
@@ -206,44 +248,101 @@ async def websocket_endpoint(websocket: WebSocket, game_id: int):
     WebSocket endpoint for real-time game updates.
     /ws/games/{game_id}
     """
-    # Check origin for WebSocket connections (CORS doesn't apply to WebSockets)
     origin = websocket.headers.get("origin")
     allowed_origins = [
         "https://micho8cho93.github.io",
-        "https://micho8cho93.github.io/scoreboard_frontend",
-        "https://micho8cho93.github.io/scoreboard_frontend/",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        None
     ]
     
-    if origin and origin.rstrip('/') not in [o.rstrip('/') for o in allowed_origins]:
-        await websocket.close(code=1008, reason="Origin not allowed")
-        return
+    print(f"\n{'='*60}")
+    print(f"WEBSOCKET CONNECTION ATTEMPT")
+    print(f"Game ID: {game_id}")
+    print(f"Origin: {origin}")
+    print(f"All headers: {dict(websocket.headers)}")
+    print(f"{'='*60}\n")
     
-    # Verify game exists using a database session
+    # More permissive origin check
+    if origin:
+        origin_normalized = origin.rstrip('/')
+        allowed_normalized = [o.rstrip('/') if o else None for o in allowed_origins]
+        if origin_normalized not in allowed_normalized:
+            print(f"❌ Origin not allowed: {origin}")
+            print(f"   Allowed origins: {allowed_origins}")
+            await websocket.close(code=1008, reason="Origin not allowed")
+            return
+        else:
+            print(f"✅ Origin allowed: {origin}")
+    
+    # Verify game exists
     db = next(get_db())
     try:
         game = db.query(models.Game).filter(models.Game.id == game_id).first()
         if not game:
+            print(f"❌ Game {game_id} not found in database")
             await websocket.close(code=1008, reason="Game not found")
             return
+        
+        print(f"✅ Game found: {game.team_a_name} vs {game.team_b_name}")
         
         # Connect client
         await manager.connect(websocket, game_id)
         
         try:
-            # Keep connection alive and handle any incoming messages
+            # Send initial connection confirmation
+            await websocket.send_json({
+                "type": "connection_established",
+                "game_id": game_id,
+                "message": "Connected to live updates"
+            })
+            print(f"✅ Sent connection confirmation to client")
+            
+            # Keep connection alive with periodic pings
+            import asyncio
+            last_ping = asyncio.get_event_loop().time()
+            
             while True:
-                # Wait for messages (client can send ping/pong or other commands)
-                # Use receive() instead of receive_text() to handle both text and ping/pong
-                message = await websocket.receive()
-                if message.get("type") == "websocket.disconnect":
-                    break
-                # For now, we just ignore client messages
-                # In future, could handle commands like "ping"
+                try:
+                    # Wait for messages with a timeout
+                    data = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=30.0
+                    )
+                    
+                    print(f"📨 Received from client (game {game_id}): {data}")
+                    
+                    # Echo back for ping/pong
+                    if data == "ping":
+                        await websocket.send_text("pong")
+                        print(f"   Sent pong response")
+                        last_ping = asyncio.get_event_loop().time()
+                        
+                except asyncio.TimeoutError:
+                    # Send keepalive ping to client
+                    current_time = asyncio.get_event_loop().time()
+                    if current_time - last_ping > 25:
+                        try:
+                            await websocket.send_json({
+                                "type": "keepalive",
+                                "timestamp": current_time
+                            })
+                            print(f"📡 Sent keepalive to game {game_id}")
+                            last_ping = current_time
+                        except Exception as e:
+                            print(f"❌ Keepalive failed: {e}")
+                            break
+                    continue
+                    
         except WebSocketDisconnect:
-            manager.disconnect(websocket, game_id)
+            print(f"🔌 WebSocket disconnected normally for game {game_id}")
         except Exception as e:
+            print(f"❌ WebSocket error for game {game_id}: {type(e).__name__}: {e}")
+        finally:
             manager.disconnect(websocket, game_id)
-            print(f"WebSocket error: {e}")
+            print(f"🧹 Cleaned up connection for game {game_id}")
     finally:
         db.close()
 
