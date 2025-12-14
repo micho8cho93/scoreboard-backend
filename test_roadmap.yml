@@ -1,0 +1,153 @@
+metadata:
+  project: real_time_scoreboard
+  description: |
+    Test-Driven Development roadmap for Real-Time Scoreboard App
+    Frontend: GitHub Pages / Vercel
+    Backend: FastAPI
+  version: 1.0
+  date_created: "2025-12-14"
+
+phases:
+  - phase_id: 1
+    name: Domain Model Tests
+    description: Validate models before any API implementation.
+    tests:
+      - id: sport_model_valid
+        intent: "Ensure sport creation with valid data succeeds"
+        inputs: {name: "Soccer", slug: "soccer"}
+        expected_outcome: "Sport instance created successfully"
+
+      - id: sport_model_invalid_name
+        intent: "Reject sport creation with empty name"
+        inputs: {name: "", slug: "empty"}
+        expected_outcome: "Validation error"
+
+      - id: game_model_valid
+        intent: "Game requires sport association and two teams"
+        inputs: {sport_id: 1, team_a: "A", team_b: "B"}
+        expected_outcome: "Game instance created successfully"
+
+      - id: game_model_invalid_status
+        intent: "Reject invalid game status"
+        inputs: {status: "unknown"}
+        expected_outcome: "Validation error"
+
+      - id: event_model_valid
+        intent: "Event must belong to a game and have team/minute"
+        inputs: {game_id: 1, team: "A", minute: 5, description: "Goal"}
+        expected_outcome: "Event created successfully"
+
+  - phase_id: 2
+    name: REST API Contract Tests
+    description: Ensure backend API endpoints adhere to contract.
+    tests:
+      - id: api_get_sports_empty
+        intent: "GET /sports returns empty list initially"
+        expected_outcome: "[]"
+
+      - id: api_post_sport
+        intent: "POST /sports creates sport"
+        inputs: {name: "Basketball", slug: "basketball"}
+        expected_outcome: "201 Created, sport appears in GET"
+
+      - id: api_get_games_empty
+        intent: "GET /sports/{sport_id}/games returns empty initially"
+        expected_outcome: "[]"
+
+      - id: api_post_game
+        intent: "POST /games creates a game for a sport"
+        inputs: {sport_id: 1, team_a: "A", team_b: "B"}
+        expected_outcome: "201 Created, associated with sport"
+
+      - id: api_get_game_state
+        intent: "GET /games/{game_id} returns metadata and play-by-play"
+        expected_outcome: "Game metadata + empty play-by-play list"
+
+  - phase_id: 3
+    name: Play-By-Play Event API Tests
+    description: Validate event creation and ordering.
+    tests:
+      - id: api_post_event_valid
+        intent: "POST /games/{game_id}/events adds new event"
+        inputs: {team: "A", minute: 10, description: "Goal"}
+        expected_outcome: "201 Created, event persisted"
+
+      - id: api_post_event_invalid_team
+        intent: "Reject event with invalid team side"
+        inputs: {team: "C", minute: 5, description: "Error"}
+        expected_outcome: "400 Validation error"
+
+      - id: api_event_ordering
+        intent: "Events returned in chronological order"
+        expected_outcome: "Events sorted by creation time"
+
+  - phase_id: 4
+    name: WebSocket Tests
+    description: Validate real-time broadcast functionality.
+    tests:
+      - id: ws_connection_valid
+        intent: "Client can connect to valid game WebSocket"
+        expected_outcome: "Connection accepted"
+
+      - id: ws_connection_invalid_game
+        intent: "Invalid game ID rejects connection"
+        expected_outcome: "Connection rejected"
+
+      - id: ws_broadcast
+        intent: "Event broadcasted to all connected clients"
+        expected_outcome: "All clients receive event payload"
+
+      - id: ws_late_join
+        intent: "Late joining client does not receive historical events"
+        expected_outcome: "No historical events sent via WebSocket"
+
+  - phase_id: 5
+    name: Integration Tests
+    description: Ensure REST and WebSocket layers work together.
+    tests:
+      - id: full_game_flow
+        intent: "Simulate creating sport, game, event and receiving via WebSocket"
+        expected_outcome: "Event appears in REST and real-time updates"
+
+      - id: concurrent_events
+        intent: "Multiple events posted rapidly"
+        expected_outcome: "All events broadcasted in order, no duplicates"
+
+  - phase_id: 6
+    name: Frontend Contract Tests
+    description: Validate frontend behavior against backend contracts.
+    tests:
+      - id: ui_sports_dropdown
+        intent: "Sports dropdown populates correctly from API"
+        expected_outcome: "All available sports shown"
+
+      - id: ui_game_dropdown
+        intent: "Games dropdown updates on sport selection"
+        expected_outcome: "Games filtered by sport"
+
+      - id: ui_scoreboard_render
+        intent: "Events render on correct team side with correct minute"
+        expected_outcome: "UI shows events chronologically"
+
+      - id: ui_websocket_update
+        intent: "Incoming WebSocket events append to timeline"
+        expected_outcome: "Timeline updates in real-time"
+
+  - phase_id: 7
+    name: End-to-End Tests
+    description: Validate the full deployed system.
+    tests:
+      - id: e2e_live_event
+        intent: "Frontend subscribes to live game and receives events"
+        expected_outcome: "Events appear within <1 second latency"
+
+      - id: e2e_multiple_sports
+        intent: "Select different sports and games"
+        expected_outcome: "Correct game state displayed"
+
+completion_criteria:
+  - "All tests pass in sequence"
+  - "No skipped or pending tests"
+  - "All real-time behaviors verified"
+  - "Frontend correctly displays live updates"
+
